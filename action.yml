@@ -1,0 +1,41 @@
+name: tfvars-lint
+description: Validate a .tfvars file against a Terraform module's variable schema.
+branding:
+  icon: check-circle
+  color: purple
+
+inputs:
+  vars:
+    description: Path to the .tfvars file to validate.
+    required: true
+  module:
+    description: Path to the Terraform module directory.
+    required: false
+    default: "."
+  json:
+    description: Emit machine-readable JSON output.
+    required: false
+    default: "false"
+  version:
+    description: tfvars-lint version to install (git ref).
+    required: false
+    default: latest
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: "1.22"
+
+    - name: Install tfvars-lint
+      shell: bash
+      run: go install github.com/moveeeax/tfvars-lint@${{ inputs.version }}
+
+    - name: Run tfvars-lint
+      shell: bash
+      run: |
+        args=(--module "${{ inputs.module }}" --vars "${{ inputs.vars }}")
+        if [ "${{ inputs.json }}" = "true" ]; then args+=(--json); fi
+        "$(go env GOPATH)/bin/tfvars-lint" "${args[@]}"

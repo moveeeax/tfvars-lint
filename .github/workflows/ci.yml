@@ -1,0 +1,48 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        go-version: ["1.22", "1.23"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version }}
+
+      - name: Verify formatting
+        run: test -z "$(gofmt -l .)"
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test -race ./...
+
+      - name: Build
+        run: go build -o /tmp/tfvars-lint .
+
+      - name: Smoke-test (valid → exit 0)
+        run: /tmp/tfvars-lint --module testdata/module --vars testdata/valid.tfvars
+
+      - name: Smoke-test (bad → exit 1)
+        run: |
+          if /tmp/tfvars-lint --module testdata/module --vars testdata/bad.tfvars; then
+            echo "expected non-zero exit for invalid tfvars" >&2
+            exit 1
+          fi
+
+      - name: Smoke-test (JSON output is valid)
+        run: |
+          /tmp/tfvars-lint --module testdata/module --vars testdata/bad.tfvars --json > /tmp/out.json || true
+          python3 -c "import json,sys; d=json.load(open('/tmp/out.json')); assert d['ok'] is False; assert len(d['findings'])==6"
