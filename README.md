@@ -27,8 +27,19 @@ $ tfvars-lint --module ./ --vars prod.tfvars
   `.tfvars`.
 - **Unknown keys** — set in the `.tfvars` but not declared by the module, with a
   nearest-name suggestion for typos.
+- **Illegal nulls** — a variable declared `nullable = false` with no `default`
+  explicitly set to `null`. (When such a variable *does* have a default,
+  Terraform substitutes the default rather than erroring, and neither does this.)
+
+Finding kinds, as they appear in `--json` output: `type_mismatch`,
+`missing_required`, `unknown_variable`, `null_not_allowed`.
 
 Variables typed `any` (or with no `type`) accept any value, matching Terraform.
+Object types using `optional(<type>)` and `optional(<type>, <default>)`
+(Terraform 1.3+) are understood, and optional attributes may be omitted.
+
+Both syntaxes Terraform accepts for a `-var-file` are supported: native HCL, and
+JSON when the filename ends in `.json` (`prod.tfvars.json`).
 
 ## Install
 
@@ -46,7 +57,7 @@ tfvars-lint --vars <file.tfvars> [--module <dir>] [--json]
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--vars` | — | Path to the `.tfvars` file (required) |
+| `--vars` | — | Path to the `.tfvars` / `.tfvars.json` file (required) |
 | `--module` | `.` | Terraform module directory to read `variables.tf` from |
 | `--json` | `false` | Emit machine-readable JSON |
 
@@ -56,9 +67,11 @@ tfvars-lint --vars <file.tfvars> [--module <dir>] [--json]
 |------|---------|
 | `0` | No issues |
 | `1` | Lint findings |
-| `2` | Usage or internal error |
+| `2` | Usage or internal error (unreadable module, unparseable input) |
 
-The `0/1` split makes it a drop-in CI gate.
+The `0/1` split makes it a drop-in CI gate. Findings go to **stdout**;
+diagnostics go to **stderr**, so `tfvars-lint --json ... 2>/dev/null` is always
+either valid JSON or empty.
 
 ### JSON output
 
@@ -82,7 +95,35 @@ This repo ships a composite action ([`action.yml`](action.yml)):
   with:
     module: ./infra
     vars: ./infra/prod.tfvars
+```
+
+| Input | Default | Description |
+|-------|---------|-------------|
+| `vars` | — | Path to the `.tfvars` / `.tfvars.json` file (required) |
+| `module` | `.` | Terraform module directory |
+| `json` | `"false"` | Emit machine-readable JSON |
+| `fail-on-findings` | `"true"` | Fail the step on findings. `"false"` reports only — exit code `2` still fails |
+| `version` | `latest` | Any `go install` module query: `latest`, `v0.1.0`, a branch, a commit SHA |
+
+| Output | Description |
+|--------|-------------|
+| `exit-code` | `0` clean, `1` findings, `2` error |
+| `findings` | The linter's stdout — the JSON document when `json` is `"true"` |
+
+Report-only, gating on the outputs yourself:
+
+```yaml
+- id: tfvars
+  uses: moveeeax/tfvars-lint@v0
+  with:
+    module: ./infra
+    vars: ./infra/prod.tfvars
     json: "true"
+    fail-on-findings: "false"
+
+- env:
+    FINDINGS: ${{ steps.tfvars.outputs.findings }}
+  run: printf '%s' "$FINDINGS" | jq '.findings[] | .message'
 ```
 
 ## How it works

@@ -102,3 +102,58 @@ func TestNearest(t *testing.T) {
 		t.Errorf("nearest(zzzzzzzz) = %q, want empty", got)
 	}
 }
+
+// Terraform rejects an explicit null only when nullable = false AND the
+// variable has no default; with a default it substitutes the default instead.
+func TestCheckNullableFalse(t *testing.T) {
+	vars, err := schema.LoadModule("../../testdata/strict")
+	if err != nil {
+		t.Fatalf("schema: %v", err)
+	}
+	vals, err := tfvars.LoadFile("../../testdata/nullable.tfvars")
+	if err != nil {
+		t.Fatalf("tfvars: %v", err)
+	}
+	findings := Check(vars, vals)
+	if len(findings) != 1 {
+		t.Fatalf("want exactly 1 finding, got %+v", findings)
+	}
+	f := findings[0]
+	if f.Kind != NullNotAllowed || f.Variable != "account_id" {
+		t.Errorf("want null_not_allowed for account_id, got %+v", f)
+	}
+	if f.Line != 1 {
+		t.Errorf("want line 1, got %d", f.Line)
+	}
+}
+
+func TestCheckNullAllowedWhenNullable(t *testing.T) {
+	vars, _ := load(t, "../../testdata/valid.tfvars")
+	// "name" is required but nullable by default: Terraform accepts null here.
+	vals, err := tfvars.Parse("t.tfvars", []byte("name = null\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f := Check(vars, vals); len(f) != 0 {
+		t.Errorf("null for a nullable variable should pass, got %+v", f)
+	}
+}
+
+func TestCheckOptionalObjectAttributesMayBeOmitted(t *testing.T) {
+	vars, _ := load(t, "../../testdata/valid.tfvars")
+	vals, err := tfvars.Parse("t.tfvars", []byte("name = \"x\"\nscaling = { min = 2 }\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f := Check(vars, vals); len(f) != 0 {
+		t.Errorf("omitted optional() attributes should pass, got %+v", f)
+	}
+	vals, err = tfvars.Parse("t.tfvars", []byte("name = \"x\"\nscaling = { min = 2, max = \"lots\" }\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := Check(vars, vals)
+	if len(f) != 1 || f[0].Kind != TypeMismatch || f[0].Variable != "scaling" {
+		t.Errorf("a badly typed optional() attribute should be a type_mismatch, got %+v", f)
+	}
+}

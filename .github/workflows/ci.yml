@@ -6,13 +6,18 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        go-version: ["1.22", "1.23"]
+        # The oldest supported toolchain (matching go.mod) plus whatever is
+        # current, so toolchain drift surfaces here and not in a consumer's job.
+        go-version: ["1.22", "1.23", "stable"]
     steps:
       - uses: actions/checkout@v4
 
@@ -35,6 +40,9 @@ jobs:
       - name: Smoke-test (valid → exit 0)
         run: /tmp/tfvars-lint --module testdata/module --vars testdata/valid.tfvars
 
+      - name: Smoke-test (JSON vars file → exit 0)
+        run: /tmp/tfvars-lint --module testdata/module --vars testdata/valid.tfvars.json
+
       - name: Smoke-test (bad → exit 1)
         run: |
           if /tmp/tfvars-lint --module testdata/module --vars testdata/bad.tfvars; then
@@ -42,7 +50,61 @@ jobs:
             exit 1
           fi
 
+      - name: Smoke-test (nullable = false set to null → exit 1)
+        run: |
+          if /tmp/tfvars-lint --module testdata/strict --vars testdata/nullable.tfvars; then
+            echo "expected non-zero exit for a null non-nullable variable" >&2
+            exit 1
+          fi
+
       - name: Smoke-test (JSON output is valid)
         run: |
           /tmp/tfvars-lint --module testdata/module --vars testdata/bad.tfvars --json > /tmp/out.json || true
           python3 -c "import json,sys; d=json.load(open('/tmp/out.json')); assert d['ok'] is False; assert len(d['findings'])==6"
+
+      - name: Smoke-test (findings on stdout, diagnostics on stderr)
+        run: |
+          /tmp/tfvars-lint --module testdata/module --vars testdata/bad.tfvars 2>/dev/null | grep -q "issue(s)"
+          /tmp/tfvars-lint --module /no/such/module --vars testdata/valid.tfvars 2>&1 >/dev/null | grep -q "read module dir"
+
+  # Exercises action.yml itself, so drift between the action's declared
+  # inputs/outputs and the CLI is caught here rather than in a consumer's
+  # workflow. It runs against examples/ (no Terraform 1.3+ type syntax) because
+  # the action installs the published release, not this checkout.
+  action:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Action on a valid tfvars
+        id: ok
+        uses: ./
+        with:
+          module: examples/module
+          vars: examples/prod.tfvars
+          json: "true"
+
+      - name: Assert clean run
+        env:
+          EXIT_CODE: ${{ steps.ok.outputs.exit-code }}
+          FINDINGS: ${{ steps.ok.outputs.findings }}
+        run: |
+          test "$EXIT_CODE" = "0"
+          printf '%s' "$FINDINGS" | jq -e '.ok == true'
+
+      - name: Action reports findings without failing when asked
+        id: bad
+        uses: ./
+        with:
+          module: examples/module
+          vars: testdata/bad.tfvars
+          json: "true"
+          fail-on-findings: "false"
+
+      - name: Assert findings are surfaced as outputs
+        env:
+          EXIT_CODE: ${{ steps.bad.outputs.exit-code }}
+          FINDINGS: ${{ steps.bad.outputs.findings }}
+        run: |
+          test "$EXIT_CODE" = "1"
+          printf '%s' "$FINDINGS" | jq -e '.ok == false and (.findings | length) > 0'
