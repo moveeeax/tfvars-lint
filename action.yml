@@ -44,7 +44,7 @@ runs:
   using: composite
   steps:
     - name: Set up Go
-      uses: actions/setup-go@v5
+      uses: actions/setup-go@v7
       with:
         # Not pinned to the module's own `go` directive: the action runs in the
         # consumer's checkout, so go.mod is not available here, and a stale pin
