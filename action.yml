@@ -6,7 +6,7 @@ branding:
 
 inputs:
   vars:
-    description: Path to the .tfvars file to validate.
+    description: Path to the .tfvars (or .tfvars.json) file to validate.
     required: true
   module:
     description: Path to the Terraform module directory.
@@ -16,10 +16,29 @@ inputs:
     description: Emit machine-readable JSON output.
     required: false
     default: "false"
+  fail-on-findings:
+    description: >-
+      Fail the step when the linter reports findings. Set to "false" to
+      report-only and gate on the exit-code / findings outputs instead. A usage
+      or internal error (exit code 2) always fails the step.
+    required: false
+    default: "true"
   version:
-    description: tfvars-lint version to install (git ref).
+    description: >-
+      tfvars-lint version to install. Any `go install` module query: latest, a
+      tag such as v0.1.0, a branch name, or a commit SHA.
     required: false
     default: latest
+
+outputs:
+  exit-code:
+    description: 0 = no issues, 1 = lint findings, 2 = usage or internal error.
+    value: ${{ steps.lint.outputs.exit-code }}
+  findings:
+    description: >-
+      The linter's stdout: the JSON document when `json` is "true", otherwise
+      the human-readable summary.
+    value: ${{ steps.lint.outputs.findings }}
 
 runs:
   using: composite
@@ -27,15 +46,48 @@ runs:
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: "1.22"
+        # Not pinned to the module's own `go` directive: the action runs in the
+        # consumer's checkout, so go.mod is not available here, and a stale pin
+        # would break the install the moment this module raises its minimum.
+        go-version: stable
 
     - name: Install tfvars-lint
       shell: bash
-      run: go install github.com/moveeeax/tfvars-lint@${{ inputs.version }}
+      env:
+        # Inputs are passed through the environment rather than interpolated
+        # into the script body, so a value containing shell metacharacters
+        # cannot escape into the command.
+        TFVARS_LINT_VERSION: ${{ inputs.version }}
+      run: go install "github.com/moveeeax/tfvars-lint@${TFVARS_LINT_VERSION}"
 
     - name: Run tfvars-lint
+      id: lint
       shell: bash
+      env:
+        TFVARS_LINT_VARS: ${{ inputs.vars }}
+        TFVARS_LINT_MODULE: ${{ inputs.module }}
+        TFVARS_LINT_JSON: ${{ inputs.json }}
+        TFVARS_LINT_FAIL: ${{ inputs.fail-on-findings }}
       run: |
-        args=(--module "${{ inputs.module }}" --vars "${{ inputs.vars }}")
-        if [ "${{ inputs.json }}" = "true" ]; then args+=(--json); fi
-        "$(go env GOPATH)/bin/tfvars-lint" "${args[@]}"
+        set -uo pipefail
+        args=(--module "$TFVARS_LINT_MODULE" --vars "$TFVARS_LINT_VARS")
+        if [ "$TFVARS_LINT_JSON" = "true" ]; then args+=(--json); fi
+
+        # Findings go to stdout, diagnostics to stderr; keep them apart so the
+        # `findings` output stays machine-readable in --json mode.
+        set +e
+        out="$("$(go env GOPATH)/bin/tfvars-lint" "${args[@]}")"
+        code=$?
+        set -e
+        printf '%s\n' "$out"
+
+        delim="TFVARS_LINT_EOF_${RANDOM}${RANDOM}"
+        {
+          echo "exit-code=$code"
+          echo "findings<<${delim}"
+          printf '%s\n' "$out"
+          echo "$delim"
+        } >>"$GITHUB_OUTPUT"
+
+        if [ "$code" -ge 2 ]; then exit "$code"; fi
+        if [ "$TFVARS_LINT_FAIL" != "false" ] && [ "$code" -ne 0 ]; then exit "$code"; fi

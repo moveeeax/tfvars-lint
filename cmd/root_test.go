@@ -76,3 +76,63 @@ func TestRunUnparseableModule(t *testing.T) {
 		t.Errorf("exit = %d, want 2", code)
 	}
 }
+
+func TestRunJSONVarsFile(t *testing.T) {
+	var out, errb bytes.Buffer
+	code, err := Run([]string{"--module", "../testdata/module", "--vars", "../testdata/valid.tfvars.json"}, &out, &errb)
+	if err != nil {
+		t.Fatalf("Run: %v (%s)", err, errb.String())
+	}
+	if code != exitOK {
+		t.Errorf("exit = %d, want 0; out=%s", code, out.String())
+	}
+}
+
+func TestRunRejectsStrayPositionalArg(t *testing.T) {
+	var out, errb bytes.Buffer
+	code, err := Run([]string{"--module", "../testdata/module", "--vars", "../testdata/valid.tfvars", "stray.tfvars"}, &out, &errb)
+	if err == nil {
+		t.Fatal("expected an error for a stray positional argument")
+	}
+	if code != exitError {
+		t.Errorf("exit = %d, want 2", code)
+	}
+}
+
+func TestRunNullNotAllowedExit1(t *testing.T) {
+	var out, errb bytes.Buffer
+	code, err := Run([]string{"--module", "../testdata/strict", "--vars", "../testdata/nullable.tfvars"}, &out, &errb)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if code != exitFindings {
+		t.Errorf("exit = %d, want 1", code)
+	}
+	if !strings.Contains(out.String(), "null_not_allowed") {
+		t.Errorf("expected a null_not_allowed finding, got: %s", out.String())
+	}
+}
+
+func TestRunBadJSONVarsFileExit1(t *testing.T) {
+	var out, errb bytes.Buffer
+	code, err := Run([]string{"--module", "../testdata/module", "--vars", "../testdata/bad.tfvars.json", "--json"}, &out, &errb)
+	if err != nil {
+		t.Fatalf("Run: %v (%s)", err, errb.String())
+	}
+	if code != exitFindings {
+		t.Errorf("exit = %d, want 1", code)
+	}
+	var res report.Result
+	if err := json.Unmarshal(out.Bytes(), &res); err != nil {
+		t.Fatalf("JSON invalid: %v\n%s", err, out.String())
+	}
+	// instance_count type mismatch, subnetss unknown, name missing.
+	if len(res.Findings) != 3 {
+		t.Errorf("want 3 findings, got %d: %+v", len(res.Findings), res.Findings)
+	}
+	for _, f := range res.Findings {
+		if f.Kind != "missing_required" && f.Line == 0 {
+			t.Errorf("JSON-syntax finding lost its source line: %+v", f)
+		}
+	}
+}

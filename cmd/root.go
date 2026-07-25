@@ -38,6 +38,10 @@ func Run(args []string, stdout, stderr io.Writer) (int, error) {
 		Example:       "  tfvars-lint --vars prod.tfvars --module ./\n  tfvars-lint --vars prod.tfvars --module ./ --json",
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		// Everything is a flag; a stray positional argument is a typo we must
+		// not silently ignore (e.g. `tfvars-lint --vars a.tfvars b.tfvars`
+		// would otherwise lint only a.tfvars and exit 0).
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			vars, err := schema.LoadModule(module)
 			if err != nil {

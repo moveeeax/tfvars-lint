@@ -19,6 +19,7 @@ const (
 	TypeMismatch    Kind = "type_mismatch"
 	MissingRequired Kind = "missing_required"
 	UnknownVariable Kind = "unknown_variable"
+	NullNotAllowed  Kind = "null_not_allowed"
 )
 
 // Finding is a single lint problem.
@@ -58,6 +59,19 @@ func Check(vars []schema.Variable, vals []tfvars.Value) []Finding {
 				f.Message += fmt.Sprintf("; did you mean %q?", s)
 			}
 			findings = append(findings, f)
+			continue
+		}
+		// Terraform rejects an explicit null only for a nullable = false
+		// variable that has no default; when a default exists it silently
+		// substitutes the default instead, so that case is not a finding.
+		if !v.Nullable && !v.HasDefault && val.Val.IsNull() {
+			findings = append(findings, Finding{
+				Kind:     NullNotAllowed,
+				Variable: val.Name,
+				Message: fmt.Sprintf("required variable %q is declared nullable = false and may not be set to null",
+					val.Name),
+				Line: val.Range.Start.Line,
+			})
 			continue
 		}
 		if v.Type == cty.DynamicPseudoType || v.Type == cty.NilType {

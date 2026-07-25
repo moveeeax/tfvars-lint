@@ -58,3 +58,60 @@ func TestParseInvalidHCL(t *testing.T) {
 		t.Fatal("expected parse diagnostics for malformed HCL")
 	}
 }
+
+// Regression: typeexpr.TypeConstraint rejects the two-argument
+// optional(<type>, <default>) form that Terraform 1.3+ accepts, which made
+// LoadModule fail outright on any module using it.
+func TestLoadModuleOptionalObjectAttributes(t *testing.T) {
+	vars, err := LoadModule("../../testdata/module")
+	if err != nil {
+		t.Fatalf("LoadModule: %v", err)
+	}
+	var scaling *Variable
+	for i := range vars {
+		if vars[i].Name == "scaling" {
+			scaling = &vars[i]
+		}
+	}
+	if scaling == nil {
+		t.Fatal("missing variable 'scaling'")
+	}
+	if !scaling.Type.IsObjectType() {
+		t.Fatalf("scaling should be an object, got %s", scaling.TypeString)
+	}
+	for _, attr := range []string{"max", "strategy"} {
+		if !scaling.Type.AttributeOptional(attr) {
+			t.Errorf("attribute %q should be optional, type is %s", attr, scaling.TypeString)
+		}
+	}
+	if scaling.Type.AttributeOptional("min") {
+		t.Errorf("attribute \"min\" should be required, type is %s", scaling.TypeString)
+	}
+}
+
+func TestLoadModuleNullable(t *testing.T) {
+	vars, err := LoadModule("../../testdata/strict")
+	if err != nil {
+		t.Fatalf("LoadModule: %v", err)
+	}
+	byName := map[string]Variable{}
+	for _, v := range vars {
+		byName[v.Name] = v
+	}
+	if v := byName["account_id"]; v.Nullable || !v.Required() {
+		t.Errorf("account_id: nullable=%v required=%v, want false/true", v.Nullable, v.Required())
+	}
+	if v := byName["region"]; v.Nullable || v.Required() {
+		t.Errorf("region: nullable=%v required=%v, want false/false", v.Nullable, v.Required())
+	}
+	// A variable with no nullable argument defaults to nullable, per Terraform.
+	mod, err := LoadModule("../../testdata/module")
+	if err != nil {
+		t.Fatalf("LoadModule: %v", err)
+	}
+	for _, v := range mod {
+		if v.Name == "name" && !v.Nullable {
+			t.Error("name should default to nullable = true")
+		}
+	}
+}
