@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strings"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/hclsyntax"
+	"github.com/hashicorp/hcl/v2/json"
 	"github.com/zclconf/go-cty/cty"
 )
 
@@ -29,9 +31,17 @@ func LoadFile(path string) ([]Value, error) {
 	return Parse(path, src)
 }
 
-// Parse reads assignments from tfvars source.
+// Parse reads assignments from tfvars source. Files named *.json are parsed as
+// JSON, matching how Terraform decides between the native and JSON syntaxes for
+// a -var-file.
 func Parse(filename string, src []byte) ([]Value, error) {
-	file, diags := hclsyntax.ParseConfig(src, filename, hcl.InitialPos)
+	var file *hcl.File
+	var diags hcl.Diagnostics
+	if strings.HasSuffix(strings.ToLower(filename), ".json") {
+		file, diags = json.Parse(src, filename)
+	} else {
+		file, diags = hclsyntax.ParseConfig(src, filename, hcl.InitialPos)
+	}
 	if diags.HasErrors() {
 		return nil, fmt.Errorf("parse %s: %s", filename, diags.Error())
 	}

@@ -97,7 +97,10 @@ func parse(filename string, src []byte) ([]Variable, hcl.Diagnostics) {
 		}
 		attrs := block.Body.Attributes
 		if ta, ok := attrs["type"]; ok {
-			ty, d := typeexpr.TypeConstraint(ta.Expr)
+			// TypeConstraintWithDefaults (not TypeConstraint) is what Terraform
+			// itself uses: it accepts the two-argument optional(type, default)
+			// form introduced in Terraform 1.3. TypeConstraint rejects it.
+			ty, _, d := typeexpr.TypeConstraintWithDefaults(ta.Expr)
 			diags = append(diags, d...)
 			if !d.HasErrors() {
 				v.Type = ty
