@@ -17,7 +17,7 @@ jobs:
       matrix:
         # The oldest supported toolchain (matching go.mod) plus whatever is
         # current, so toolchain drift surfaces here and not in a consumer's job.
-        go-version: ["1.22", "1.23", "stable"]
+        go-version: ["1.25", "stable"]
     steps:
       - uses: actions/checkout@v7
 
