@@ -1,7 +1,7 @@
 # tfvars-lint
 
 [![ci](https://github.com/moveeeax/tfvars-lint/actions/workflows/ci.yml/badge.svg)](https://github.com/moveeeax/tfvars-lint/actions/workflows/ci.yml)
-[![go](https://img.shields.io/badge/go-1.22%2B-00ADD8)](https://go.dev)
+[![go](https://img.shields.io/badge/go-1.26%2B-00ADD8)](https://go.dev)
 [![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 > Catch bad `.tfvars` before `terraform plan` even runs.
@@ -46,6 +46,8 @@ JSON when the filename ends in `.json` (`prod.tfvars.json`).
 ```bash
 go install github.com/moveeeax/tfvars-lint@latest
 ```
+
+Requires Go 1.26 or newer.
 
 Produces a single static binary (`tfvars-lint`).
 
